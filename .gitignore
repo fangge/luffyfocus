@@ -1,0 +1,15 @@
+# System files
+.DS_Store
+*.swp
+*.swo
+
+# Claude/Superpowers internal files
+.claude/
+.superpowers/
+skills-lock.json
+
+# Design references (not part of the extension)
+stitch_pixel_luffy_focus/
+
+# Node
+node_modules/
