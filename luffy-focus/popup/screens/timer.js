@@ -19,7 +19,7 @@ export function initTimerScreen(container, state) {
   container.innerHTML = `
     <div class="flex flex-col flex-1 p-gutter gap-lg overflow-y-auto" style="display: flex; flex-direction: column; flex: 1; padding: var(--space-gutter); gap: var(--space-lg); overflow-y: auto;">
 
-      <div class="text-label-caps text-on-surface-variant" style="text-align: center;">
+      <div id="timer-template-name" class="text-label-caps text-on-surface-variant" style="text-align: center;">
         ${currentTemplate ? currentTemplate.name.toUpperCase() : 'NO TEMPLATE'}
       </div>
 
@@ -86,7 +86,8 @@ export function updateTimerScreen(state) {
   const sessionsToday = getSessionsToday(appData);
   updateProgress(sessionsToday.length, appData.settings.dailyGoal);
 
-  const templateLabel = document.querySelector('#screen-timer .text-label-caps.text-on-surface-variant');
+  // Update template name display using dedicated ID (not fragile class selector)
+  const templateLabel = document.getElementById('timer-template-name');
   if (templateLabel && currentTemplate) {
     templateLabel.textContent = currentTemplate.name.toUpperCase();
   }

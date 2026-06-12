@@ -46,6 +46,10 @@ function renderAllScreens() {
   }
 
   initNav((screenName) => {
+    if (screenName === 'timer') {
+      // Refresh timer screen when switching to it (template may have changed)
+      updateTimerScreen({ timerState, display: getDisplayFromState(), appData, currentTemplate });
+    }
     if (screenName === 'stats') {
       refreshStats(statsScreen, appData);
     }
