@@ -6,7 +6,7 @@ import { initTimerScreen, updateTimerScreen, getTimerButtons } from './screens/t
 import { initTemplatesScreen, refreshTemplates } from './screens/templates.js';
 import { initStatsScreen, refreshStats } from './screens/stats.js';
 import { showSummary, showSummaryOverlay } from './screens/summary.js';
-import { loadData, saveData, exportToFile, importFromFile } from '../lib/storage.js';
+import { loadData, saveData, exportToFile, importFromFile, selectStorageFile, createStorageFile, isFileHandleValid, isFileSystemAPIAvailable } from '../lib/storage.js';
 import { createTemplate, updateTemplate, deleteTemplate, setActiveTemplate } from '../lib/templates.js';
 import { TIMER_STATE } from '../lib/data-model.js';
 
@@ -25,8 +25,59 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function initializeApp() {
+  // If File API is available but no file handle exists, show setup first
+  if (isFileSystemAPIAvailable()) {
+    const hasFile = await isFileHandleValid();
+    if (!hasFile) {
+      showFileSetup();
+      return; // User must pick a file before continuing
+    }
+  }
+
+  await loadStateAndRender();
+}
+
+async function loadStateAndRender() {
   await loadStateFromSW();
   renderAllScreens();
+}
+
+/** First-run screen: user picks or creates a JSON file for storage */
+function showFileSetup() {
+  const timerScreen = document.getElementById('screen-timer');
+  if (!timerScreen) return;
+
+  timerScreen.innerHTML = `
+    <div class="flex flex-col items-center justify-center gap-lg p-gutter" style="height: 100%; text-align: center;">
+      <span style="font-size: 48px;">🏴‍☠️</span>
+      <h2 class="text-headline-md">WELCOME, CAPTAIN!</h2>
+      <p class="text-body-base text-on-surface-variant" style="line-height: 1.6;">
+        Choose a JSON file to store your voyage data.<br>
+        <span style="font-size: 10px;">It will auto-save every time you make changes.</span>
+      </p>
+      <button id="btn-select-file" class="pixel-btn pixel-btn--primary w-full" style="padding: var(--space-md);">
+        📂 SELECT EXISTING FILE
+      </button>
+      <button id="btn-create-file" class="pixel-btn w-full" style="padding: var(--space-md);">
+        ✨ CREATE NEW FILE
+      </button>
+      <button id="btn-skip-file" class="pixel-btn" style="padding: var(--space-sm); font-size: var(--fs-label-caps);">
+        SKIP (browser storage only)
+      </button>
+    </div>
+  `;
+
+  timerScreen.querySelector('#btn-select-file').addEventListener('click', async () => {
+    const ok = await selectStorageFile();
+    if (ok) await loadStateAndRender();
+  });
+  timerScreen.querySelector('#btn-create-file').addEventListener('click', async () => {
+    const ok = await createStorageFile();
+    if (ok) await loadStateAndRender();
+  });
+  timerScreen.querySelector('#btn-skip-file').addEventListener('click', async () => {
+    await loadStateAndRender();
+  });
 }
 
 function renderAllScreens() {
