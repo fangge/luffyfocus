@@ -3,13 +3,17 @@
  *
  * Primary: chrome.storage.local (always available)
  * File sync: user-chosen JSON file, auto read/write when handle available.
- * Handle is persisted via chrome.storage.local and verified on load.
+ * Handle is persisted via IndexedDB (supports structured cloning of
+ * FileSystemFileHandle, unlike chrome.storage.local which JSON-serializes).
  * Falls back gracefully if handle is lost (Chrome version dependent).
  */
 import { createDefaultData } from './data-model.js';
 
 const STORAGE_KEY = 'luffy_focus_data';
-const HANDLE_STORAGE_KEY = 'luffy_focus_fh';
+const IDB_NAME = 'luffy_focus_handles';
+const IDB_STORE = 'handles';
+const IDB_KEY = 'file_handle';
+const IDB_VERSION = 1;
 
 export function isFileSystemAPIAvailable() {
   try {
@@ -17,45 +21,108 @@ export function isFileSystemAPIAvailable() {
   } catch { return false; }
 }
 
+// ── IndexedDB helper for FileSystemFileHandle ──
+// chrome.storage.local JSON-serializes values, which strips methods from
+// FileSystemFileHandle. IndexedDB uses structured cloning and preserves them.
+
+function openHandleDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+        req.result.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // ── File Handle Persistence ──
 
-/** Try to persist the file handle to chrome.storage.local */
+/** Persist the file handle to IndexedDB (and chrome.storage.local as backup) */
 async function persistHandle(handle) {
   if (!handle) return;
+  // Primary: IndexedDB (preserves FileSystemFileHandle methods via structured clone)
   try {
-    // chrome.storage.local uses IndexedDB internally in MV3.
-    // FileSystemFileHandle serialization depends on Chrome version.
-    // We wrap in try/catch because it may fail silently.
-    await chrome.storage.local.set({ [HANDLE_STORAGE_KEY]: handle });
+    const db = await openHandleDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(handle, IDB_KEY);
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    console.log('[LF] ✓ File handle persisted to IndexedDB');
   } catch (e) {
-    console.warn('[LF] Handle persistence failed (Chrome version may not support it):', e.message);
+    console.warn('[LF] IndexedDB handle persistence failed:', e.message);
+  }
+
+  // Backup: chrome.storage.local (may work in some Chrome versions that
+  // support structured-cloning FSH in extension storage)
+  try {
+    await chrome.storage.local.set({ luffy_focus_fh: handle });
+  } catch {
+    // Expected to fail in most versions — IndexedDB is the canonical store
   }
 }
 
 /** Try to load a previously persisted file handle */
 async function loadPersistedHandle() {
+  // Primary: try IndexedDB (can preserve FileSystemFileHandle via structured clone)
   try {
-    const result = await chrome.storage.local.get(HANDLE_STORAGE_KEY);
-    const raw = result[HANDLE_STORAGE_KEY];
-    if (!raw) return null;
+    const db = await openHandleDB();
+    const handle = await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
 
-    // Verify it's a real FileSystemFileHandle with expected methods.
-    // If chrome.storage.local JSON-serialized it, methods will be missing.
-    if (typeof raw.queryPermission === 'function' && typeof raw.getFile === 'function') {
-      // Check if permission is still valid
+    if (handle && typeof handle.queryPermission === 'function' && typeof handle.getFile === 'function') {
+      const perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') return handle;
+      const req = await handle.requestPermission({ mode: 'readwrite' });
+      if (req === 'granted') return handle;
+      // Permission denied — clean up stale handle
+      await removePersistedHandle();
+    }
+  } catch (e) {
+    console.warn('[LF] IndexedDB handle load failed:', e.message);
+  }
+
+  // Fallback: try chrome.storage.local (older Chrome versions)
+  try {
+    const result = await chrome.storage.local.get('luffy_focus_fh');
+    const raw = result.luffy_focus_fh;
+    if (raw && typeof raw.queryPermission === 'function' && typeof raw.getFile === 'function') {
       const perm = await raw.queryPermission({ mode: 'readwrite' });
       if (perm === 'granted') return raw;
-      // Try requesting permission
       const req = await raw.requestPermission({ mode: 'readwrite' });
-      if (req === 'granted') return raw;
+      if (req === 'granted') {
+        // Also persist to IndexedDB for next time
+        await persistHandle(raw);
+        return raw;
+      }
     }
-    // Handle is dead — clean up
-    await chrome.storage.local.remove(HANDLE_STORAGE_KEY);
-  } catch (e) {
-    // Handle retrieval failed — clean up
-    try { await chrome.storage.local.remove(HANDLE_STORAGE_KEY); } catch {}
+  } catch {
+    // Ignore — IndexedDB is the canonical store
   }
+
   return null;
+}
+
+/** Remove persisted handle from both stores */
+async function removePersistedHandle() {
+  try {
+    const db = await openHandleDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(IDB_KEY);
+    await new Promise((resolve) => { tx.oncomplete = resolve; });
+    db.close();
+  } catch {}
+  try { await chrome.storage.local.remove('luffy_focus_fh'); } catch {}
 }
 
 // ── Primary API ──
@@ -241,6 +308,14 @@ export async function isFileHandleValid() {
   if (!isFileSystemAPIAvailable()) return false;
   const handle = await loadPersistedHandle();
   return handle !== null;
+}
+
+/** Check if data already exists in chrome.storage.local (skip file setup if so) */
+export async function hasStoredData() {
+  try {
+    const result = await chrome.storage.local.get(STORAGE_KEY);
+    return !!result[STORAGE_KEY];
+  } catch { return false; }
 }
 
 // ── Migration ──

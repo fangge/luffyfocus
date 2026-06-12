@@ -6,9 +6,9 @@ import { initTimerScreen, updateTimerScreen, getTimerButtons } from './screens/t
 import { initTemplatesScreen, refreshTemplates } from './screens/templates.js';
 import { initStatsScreen, refreshStats } from './screens/stats.js';
 import { showSummary, showSummaryOverlay } from './screens/summary.js';
-import { loadData, saveData, exportToFile, importFromFile, selectStorageFile, createStorageFile, isFileHandleValid, isFileSystemAPIAvailable } from '../lib/storage.js';
+import { loadData, saveData, exportToFile, importFromFile, selectStorageFile, createStorageFile, isFileHandleValid, hasStoredData, isFileSystemAPIAvailable } from '../lib/storage.js';
 import { createTemplate, updateTemplate, deleteTemplate, setActiveTemplate } from '../lib/templates.js';
-import { TIMER_STATE } from '../lib/data-model.js';
+import { TIMER_STATE, SESSION_TYPE } from '../lib/data-model.js';
 
 // ── App State ──
 let appData = null;
@@ -25,12 +25,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function initializeApp() {
-  // If File API is available but no file handle exists, show setup first
+  // If File API is available but no file handle exists, check if we have
+  // data in chrome.storage.local. If we do, skip the file setup — the user
+  // has already used the extension before. They can reconnect a file later
+  // via Settings → Import/Export.
   if (isFileSystemAPIAvailable()) {
     const hasFile = await isFileHandleValid();
     if (!hasFile) {
-      showFileSetup();
-      return; // User must pick a file before continuing
+      const hasData = await hasStoredData();
+      if (!hasData) {
+        showFileSetup();
+        return; // First-time user must pick a file or skip
+      }
+      // Data exists in storage but file handle was lost — proceed with storage
+      console.log('[LF] Using chrome.storage.local (file handle not available)');
     }
   }
 
@@ -226,14 +234,16 @@ async function handleTemplateChange(action, payload) {
   }
 
   // 2. Update current template reference
+  const oldTemplateId = currentTemplate?.id;
   currentTemplate = appData.templates.find(t => t.id === appData.activeTemplateId) || appData.templates[0] || null;
+  const templateChanged = oldTemplateId !== currentTemplate?.id;
   console.log('[LF] handleTemplateChange:', action, 'activeTemplateId:', appData.activeTemplateId, 'currentTemplate:', currentTemplate?.name);
 
   // 3. PERSIST to storage — MUST await to ensure data is written
   await saveData(appData);
   console.log('[LF] Data saved to chrome.storage.local');
 
-  // 4. Sync to SW and await confirmation
+  // 4. Sync to SW and await confirmation (SW will also update its timer state if needed)
   const swResp = await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
   console.log('[LF] SW sync result:', swResp?.success ? 'OK' : 'FAILED');
 
@@ -241,7 +251,22 @@ async function handleTemplateChange(action, payload) {
   const tScreen = document.getElementById('screen-templates');
   if (tScreen) refreshTemplates(tScreen, appData);
 
-  // 6. ALWAYS re-init timer screen with latest data
+  // 6. Update local timer state if IDLE and template changed
+  // (the SW timer state holds the old template's duration until reset)
+  if (timerState && (timerState.state === TIMER_STATE.IDLE || timerState.state === TIMER_STATE.DONE)) {
+    if (templateChanged || action === 'updateTemplate' || action === 'createTemplate' || action === 'deleteTemplate') {
+      timerState = {
+        ...timerState,
+        templateId: currentTemplate?.id || timerState.templateId,
+        remainingSeconds: (currentTemplate?.workDuration || 25) * 60,
+        totalSeconds: (currentTemplate?.workDuration || 25) * 60,
+        type: SESSION_TYPE.WORK,
+      };
+      console.log('[LF] Updated local timerState for new template:', currentTemplate?.name, 'duration:', currentTemplate?.workDuration + 'm');
+    }
+  }
+
+  // 7. ALWAYS re-init timer screen with latest data
   const timerScreen = document.getElementById('screen-timer');
   if (timerScreen) {
     initTimerScreen(timerScreen, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);

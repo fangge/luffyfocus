@@ -36,9 +36,11 @@ export function initTimerScreen(container, state, templateSwitchCallback) {
           <div id="template-switcher" class="flex gap-xs justify-center" style="flex-wrap: wrap;">
             ${templates.map(t => {
               const isActive = t.id === appData.activeTemplateId;
+              const isRunning = timerState?.state === 'working' || timerState?.state === 'resting';
               return `
                 <button class="pixel-btn template-switch-btn" data-template-id="${t.id}"
-                  style="padding: 4px 8px; font-size: 8px; ${isActive ? 'background: ' + t.color + '; color: #fff; border-color: var(--border-color);' : ''}">
+                  style="padding: 4px 8px; font-size: 8px; ${isActive ? 'background: ' + t.color + '; color: #fff; border-color: var(--border-color);' : ''} ${isRunning ? 'opacity: 0.5; cursor: not-allowed;' : ''}"
+                  ${isRunning ? 'disabled' : ''}>
                   ${t.name.toUpperCase()}
                 </button>
               `;
@@ -129,6 +131,25 @@ export function updateTimerScreen(state) {
   if (templateName && currentTemplate) {
     templateName.textContent = currentTemplate.name.toUpperCase();
   }
+
+  // Update active state & disabled state of multi-template switch buttons
+  const isRunning = timerState?.state === 'working' || timerState?.state === 'resting';
+  const switchBtns = document.querySelectorAll('.template-switch-btn');
+  switchBtns.forEach(btn => {
+    const isActive = btn.dataset.templateId === currentTemplate?.id;
+    const tpl = appData?.templates?.find(t => t.id === btn.dataset.templateId);
+    if (isActive) {
+      btn.style.background = tpl?.color || '';
+      btn.style.color = '#fff';
+    } else {
+      btn.style.background = '';
+      btn.style.color = '';
+    }
+    // Disable template switching while timer is running
+    btn.disabled = isRunning;
+    btn.style.opacity = isRunning ? '0.5' : '';
+    btn.style.cursor = isRunning ? 'not-allowed' : '';
+  });
 }
 
 function getButtonLabel(state) {

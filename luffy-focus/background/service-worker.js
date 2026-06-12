@@ -254,8 +254,22 @@ async function handleMessage(message) {
     }
 
     case 'UPDATE_APP_DATA': {
+      const oldTemplateId = currentTemplate?.id;
+      const oldWorkDuration = currentTemplate?.workDuration;
       appData = message.payload;
       currentTemplate = getActiveTemplate(appData);
+      const templateChanged = oldTemplateId !== currentTemplate?.id;
+      const durationChanged = oldWorkDuration !== currentTemplate?.workDuration;
+
+      // If timer is IDLE/DONE and template/duration changed, reset timer state
+      // so the countdown reflects the current template's work duration
+      if (timerState && (timerState.state === 'idle' || timerState.state === 'done')) {
+        if (templateChanged || durationChanged) {
+          timerState = createTimerState(currentTemplate || { id: 'default', workDuration: 25, restDuration: 5 });
+          console.log('[LF SW] Reset timer state for template:', currentTemplate?.name, 'duration:', currentTemplate?.workDuration + 'm');
+        }
+      }
+
       await persistAll();
       return { success: true };
     }
