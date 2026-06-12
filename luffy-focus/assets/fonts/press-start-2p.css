@@ -1,11 +1,14 @@
-/* Press Start 2P — Self-hosted with Google Fonts fallback */
+/* Press Start 2P — Self-hosted for offline Chrome extension use */
 @font-face {
   font-family: 'Press Start 2P';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url('PressStart2P.woff2') format('woff2');
+  /* Fallback to monospace if pixel font fails to load */
 }
-
-/* Fallback: load from Google Fonts if local file not found */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+/* NOTE: To add Google Fonts as fallback, add to manifest CSP:
+   "content_security_policy": {
+     "extension_pages": "style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com"
+   }
+*/
