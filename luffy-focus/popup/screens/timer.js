@@ -10,17 +10,45 @@ let timerLabel = null;
 let btnStart = null;
 let btnReset = null;
 
+// Callback for template switching from timer screen
+let onTemplateSwitch = null;
+
 /**
  * Initialize and render the timer screen.
+ * @param {HTMLElement} container
+ * @param {object} state - { timerState, display, appData, currentTemplate }
+ * @param {function} templateSwitchCallback - called when user switches template from timer
  */
-export function initTimerScreen(container, state) {
+export function initTimerScreen(container, state, templateSwitchCallback) {
   const { timerState, display, appData, currentTemplate } = state;
+  onTemplateSwitch = templateSwitchCallback || null;
+
+  const templates = appData?.templates || [];
+  const hasMultipleTemplates = templates.length > 1;
 
   container.innerHTML = `
     <div class="flex flex-col flex-1 p-gutter gap-lg overflow-y-auto" style="display: flex; flex-direction: column; flex: 1; padding: var(--space-gutter); gap: var(--space-lg); overflow-y: auto;">
 
-      <div id="timer-template-name" class="text-label-caps text-on-surface-variant" style="text-align: center;">
-        ${currentTemplate ? currentTemplate.name.toUpperCase() : 'NO TEMPLATE'}
+      <!-- Template Selector -->
+      <div id="timer-template-selector" style="text-align: center;">
+        ${hasMultipleTemplates ? `
+          <div class="text-label-caps text-on-surface-variant" style="margin-bottom: 4px;">ACTIVE TEMPLATE</div>
+          <div id="template-switcher" class="flex gap-xs justify-center" style="flex-wrap: wrap;">
+            ${templates.map(t => {
+              const isActive = t.id === appData.activeTemplateId;
+              return `
+                <button class="pixel-btn template-switch-btn" data-template-id="${t.id}"
+                  style="padding: 4px 8px; font-size: 8px; ${isActive ? 'background: ' + t.color + '; color: #fff; border-color: var(--border-color);' : ''}">
+                  ${t.name.toUpperCase()}
+                </button>
+              `;
+            }).join('')}
+          </div>
+        ` : `
+          <div id="timer-template-name" class="text-label-caps text-on-surface-variant">
+            ${currentTemplate ? currentTemplate.name.toUpperCase() : 'NO TEMPLATE'}
+          </div>
+        `}
       </div>
 
       <section class="pixel-card flex flex-col items-center justify-center mt-sm relative" style="display: flex; flex-direction: column; align-items: center; padding: var(--space-lg);">
@@ -59,10 +87,20 @@ export function initTimerScreen(container, state) {
   const progressContainer = container.querySelector('#progress-container');
   const sessionsToday = getSessionsToday(appData);
   renderProgress(progressContainer, sessionsToday.length, appData.settings.dailyGoal);
+
+  // Wire template switch buttons
+  container.querySelectorAll('.template-switch-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tplId = btn.dataset.templateId;
+      if (onTemplateSwitch) {
+        onTemplateSwitch(tplId);
+      }
+    });
+  });
 }
 
 /**
- * Update the timer screen with new state.
+ * Update the timer screen with new state (countdown only — for polling).
  */
 export function updateTimerScreen(state) {
   const { timerState, display, appData, currentTemplate } = state;
@@ -86,10 +124,10 @@ export function updateTimerScreen(state) {
   const sessionsToday = getSessionsToday(appData);
   updateProgress(sessionsToday.length, appData.settings.dailyGoal);
 
-  // Update template name display using dedicated ID (not fragile class selector)
-  const templateLabel = document.getElementById('timer-template-name');
-  if (templateLabel && currentTemplate) {
-    templateLabel.textContent = currentTemplate.name.toUpperCase();
+  // Update template name if single template
+  const templateName = document.getElementById('timer-template-name');
+  if (templateName && currentTemplate) {
+    templateName.textContent = currentTemplate.name.toUpperCase();
   }
 }
 
@@ -110,9 +148,6 @@ function getButtonClass(state) {
   return `${base} pixel-btn--primary`;
 }
 
-/**
- * Get the timer screen action buttons.
- */
 export function getTimerButtons() {
   return {
     main: document.querySelector('#btn-timer-main'),

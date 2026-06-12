@@ -1,6 +1,5 @@
 /**
  * Luffy Focus — Popup Entry Point
- * App initialization, screen routing, service worker communication.
  */
 import { initNav, switchScreen } from './components/nav.js';
 import { initTimerScreen, updateTimerScreen, getTimerButtons } from './screens/timer.js';
@@ -11,14 +10,14 @@ import { loadData, saveData, exportToFile, importFromFile } from '../lib/storage
 import { createTemplate, updateTemplate, deleteTemplate, setActiveTemplate } from '../lib/templates.js';
 import { TIMER_STATE } from '../lib/data-model.js';
 
-// App State
+// ── App State ──
 let appData = null;
 let timerState = null;
 let currentTemplate = null;
 let pendingSummarySession = null;
 let pollIntervalId = null;
 
-// --- Initialization ---
+// ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
   await initializeApp();
   setupSettingsButton();
@@ -35,23 +34,25 @@ function renderAllScreens() {
   const templatesScreen = document.getElementById('screen-templates');
   const statsScreen = document.getElementById('screen-stats');
 
+  // Timer screen (pass template switch callback)
   if (timerScreen) {
-    initTimerScreen(timerScreen, { timerState, display: getDisplayFromState(), appData, currentTemplate });
+    initTimerScreen(timerScreen, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);
   }
+  // Templates screen
   if (templatesScreen) {
     initTemplatesScreen(templatesScreen, appData, handleTemplateChange);
   }
+  // Stats screen
   if (statsScreen) {
     initStatsScreen(statsScreen, appData);
   }
 
+  // Navigation: re-init screens when switching tabs
   initNav((screenName) => {
     if (screenName === 'timer') {
-      // Re-initialize timer screen with current data when switching to it
-      const timerScreen = document.getElementById('screen-timer');
-      if (timerScreen) {
-        console.log('[Luffy Focus] Re-initializing timer screen with template:', currentTemplate?.name);
-        initTimerScreen(timerScreen, { timerState, display: getDisplayFromState(), appData, currentTemplate });
+      const ts = document.getElementById('screen-timer');
+      if (ts) {
+        initTimerScreen(ts, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);
         wireTimerButtons();
       }
     }
@@ -65,182 +66,163 @@ function renderAllScreens() {
 
   wireTimerButtons();
 
-  // Check if we need to show summary for a completed session
-  if (timerState?.state === TIMER_STATE.DONE && timerState?.type === 'work') {
-    const lastSession = appData.sessions[appData.sessions.length - 1];
-    if (lastSession && !lastSession.summary && lastSession.type === 'work') {
-      pendingSummarySession = lastSession;
-      showSummaryOverlay();
-      const summaryScreen = document.getElementById('screen-summary');
-      showSummary(summaryScreen, {
-        id: lastSession.id,
-        templateName: currentTemplate?.name || 'Focus',
-        duration: lastSession.duration,
-      }, {
-        onSave: handleSummarySave,
-        onDiscard: handleSummaryDiscard,
-      });
-    }
-  }
+  // Check for pending summary
+  checkPendingSummary();
 }
 
-function getDisplayFromState() {
+function getDisplay() {
   if (!timerState) return { display: '00:00', minutes: 0, seconds: 0, totalSeconds: 0 };
-  const remaining = timerState.remainingSeconds || 0;
-  const mins = Math.floor(remaining / 60);
-  const secs = remaining % 60;
+  const r = timerState.remainingSeconds || 0;
   return {
-    display: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
-    minutes: mins,
-    seconds: secs,
-    totalSeconds: remaining,
+    display: `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`,
+    minutes: Math.floor(r / 60),
+    seconds: r % 60,
+    totalSeconds: r,
   };
 }
 
-// --- Service Worker Communication ---
+// ── SW Communication ──
 async function loadStateFromSW() {
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-    if (response && response.appData) {
-      timerState = response.timerState;
-      appData = response.appData;
-      currentTemplate = response.currentTemplate;
+    const resp = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+    if (resp && resp.appData) {
+      timerState = resp.timerState;
+      appData = resp.appData;
+      currentTemplate = resp.currentTemplate;
       return;
     }
-  } catch (e) {
-    console.warn('[Luffy Focus] SW not available, loading directly');
-  }
+  } catch (e) { /* SW not ready */ }
 
-  // Fallback: load from storage directly
   appData = await loadData();
   if (!currentTemplate) {
     currentTemplate = appData.templates?.find(t => t.id === appData.activeTemplateId) || appData.templates?.[0] || null;
   }
 }
 
-async function sendToSW(message) {
-  try {
-    return await chrome.runtime.sendMessage(message);
-  } catch (e) {
-    console.error('[Luffy Focus] SW error:', e.message);
+function sendToSW(message) {
+  return chrome.runtime.sendMessage(message).catch(e => {
+    console.error('[LF] SW:', e.message);
     return { success: false, error: e.message };
-  }
+  });
 }
 
-// --- Polling ---
-// IMPORTANT: Polling only updates the TIMER STATE (countdown display).
-// It does NOT overwrite appData/currentTemplate — those are managed by
-// user actions (template changes, settings, etc.) and synced TO the SW.
-// If polling overwrote appData, a race condition would cause template
-// edits to be reverted by stale SW data.
+// ── Polling (countdown only) ──
 function startPolling() {
   pollIntervalId = setInterval(async () => {
-    const response = await sendToSW({ type: 'GET_STATE' });
-    if (response && response.timerState) {
-      // Only sync timer state — keep our local appData as source of truth
-      timerState = response.timerState;
-
-      const display = getDisplayFromState();
-      updateTimerScreen({ timerState, display: response.display || display, appData, currentTemplate });
-
-      if (timerState.state === TIMER_STATE.DONE && timerState.type === 'work' && !pendingSummarySession) {
-        const lastSession = appData.sessions[appData.sessions.length - 1];
-        if (lastSession && !lastSession.summary && lastSession.type === 'work') {
-          pendingSummarySession = lastSession;
-          showSummaryOverlay();
-          const summaryScreen = document.getElementById('screen-summary');
-          showSummary(summaryScreen, {
-            id: lastSession.id,
-            templateName: currentTemplate?.name || 'Focus',
-            duration: lastSession.duration,
-          }, {
-            onSave: handleSummarySave,
-            onDiscard: handleSummaryDiscard,
-          });
-        }
-      }
+    const resp = await sendToSW({ type: 'GET_STATE' });
+    if (resp && resp.timerState) {
+      timerState = resp.timerState;
+      updateTimerScreen({ timerState, display: resp.display || getDisplay(), appData, currentTemplate });
+      checkPendingSummary();
     }
   }, 1000);
 }
 
-// --- Timer Button Wiring ---
+// ── Timer Buttons ──
 function wireTimerButtons() {
-  const buttons = getTimerButtons();
-  if (!buttons.main || !buttons.reset) {
-    setTimeout(wireTimerButtons, 100);
+  const btns = getTimerButtons();
+  if (!btns.main || !btns.reset) {
+    setTimeout(wireTimerButtons, 50);
     return;
   }
 
-  buttons.main.addEventListener('click', async () => {
-    let response;
+  btns.main.onclick = async () => {
+    let resp;
     switch (timerState?.state) {
       case TIMER_STATE.IDLE:
       case TIMER_STATE.DONE:
-        response = await sendToSW({ type: 'START' });
-        break;
+        resp = await sendToSW({ type: 'START' }); break;
       case TIMER_STATE.WORKING:
       case TIMER_STATE.RESTING:
-        response = await sendToSW({ type: 'PAUSE' });
-        break;
+        resp = await sendToSW({ type: 'PAUSE' }); break;
       case TIMER_STATE.PAUSED:
-        response = await sendToSW({ type: 'RESUME' });
-        break;
+        resp = await sendToSW({ type: 'RESUME' }); break;
       default:
-        response = await sendToSW({ type: 'START' });
+        resp = await sendToSW({ type: 'START' });
     }
+    if (resp?.success) {
+      timerState = resp.timerState;
+      updateTimerScreen({ timerState, display: resp.display, appData, currentTemplate });
+    }
+  };
 
-    if (response?.success) {
-      timerState = response.timerState;
-      updateTimerScreen({ timerState, display: response.display, appData, currentTemplate });
+  btns.reset.onclick = async () => {
+    const resp = await sendToSW({ type: 'RESET' });
+    if (resp?.success) {
+      timerState = resp.timerState;
+      updateTimerScreen({ timerState, display: resp.display, appData, currentTemplate });
     }
-  });
-
-  buttons.reset.addEventListener('click', async () => {
-    const response = await sendToSW({ type: 'RESET' });
-    if (response?.success) {
-      timerState = response.timerState;
-      updateTimerScreen({ timerState, display: response.display, appData, currentTemplate });
-    }
-  });
+  };
 }
 
-// --- Template Change Handler ---
-async function handleTemplateChange(action, payload) {
+// ── Template Operations (SYNCHRONOUS UI update + fire-and-forget SW sync) ──
+
+/** Called when user edits/creates/deletes a template from the Templates screen */
+function handleTemplateChange(action, payload) {
+  // 1. Update local data
   switch (action) {
     case 'createTemplate':
-      appData = createTemplate(appData, payload);
-      break;
+      appData = createTemplate(appData, payload); break;
     case 'updateTemplate':
-      appData = updateTemplate(appData, payload.templateId, payload.updates);
-      break;
+      appData = updateTemplate(appData, payload.templateId, payload.updates); break;
     case 'deleteTemplate':
-      appData = deleteTemplate(appData, payload.templateId);
-      break;
+      appData = deleteTemplate(appData, payload.templateId); break;
     case 'setActiveTemplate':
-      appData = setActiveTemplate(appData, payload.templateId);
-      break;
+      appData = setActiveTemplate(appData, payload.templateId); break;
   }
 
+  // 2. Update current template reference
   currentTemplate = appData.templates.find(t => t.id === appData.activeTemplateId) || appData.templates[0] || null;
-  console.log('[Luffy Focus] Template change: action=' + action + ', new template=' + currentTemplate?.name);
 
-  await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
+  // 3. Sync to SW (fire-and-forget — no await, UI doesn't wait for SW)
+  sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
 
-  const templatesScreen = document.getElementById('screen-templates');
-  if (templatesScreen) {
-    refreshTemplates(templatesScreen, appData);
-  }
+  // 4. Refresh templates list (closes form, shows updated cards)
+  const tScreen = document.getElementById('screen-templates');
+  if (tScreen) refreshTemplates(tScreen, appData);
 
-  // Update timer screen if it's currently visible, otherwise it will be
-  // re-initialized when the user switches to it via the nav callback
+  // 5. ALWAYS re-init timer screen with latest data (regardless of active tab)
   const timerScreen = document.getElementById('screen-timer');
-  if (timerScreen && timerScreen.classList.contains('screen--active')) {
-    updateTimerScreen({ timerState, display: getDisplayFromState(), appData, currentTemplate });
+  if (timerScreen) {
+    initTimerScreen(timerScreen, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);
+    wireTimerButtons();
   }
-  console.log('[Luffy Focus] Template change complete, timerScreen active:', timerScreen?.classList.contains('screen--active'));
 }
 
-// --- Summary Handlers ---
+/** Called when user switches template from the timer screen buttons */
+function handleTemplateSwitch(templateId) {
+  appData = setActiveTemplate(appData, templateId);
+  currentTemplate = appData.templates.find(t => t.id === templateId) || appData.templates[0] || null;
+
+  sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
+
+  // Re-init both screens
+  const timerScreen = document.getElementById('screen-timer');
+  if (timerScreen) {
+    initTimerScreen(timerScreen, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);
+    wireTimerButtons();
+  }
+  const tScreen = document.getElementById('screen-templates');
+  if (tScreen) refreshTemplates(tScreen, appData);
+}
+
+// ── Summary ──
+function checkPendingSummary() {
+  if (timerState?.state === TIMER_STATE.DONE && timerState?.type === 'work' && !pendingSummarySession) {
+    const last = appData.sessions[appData.sessions.length - 1];
+    if (last && !last.summary && last.type === 'work') {
+      pendingSummarySession = last;
+      showSummaryOverlay();
+      const ss = document.getElementById('screen-summary');
+      showSummary(ss, {
+        id: last.id,
+        templateName: currentTemplate?.name || 'Focus',
+        duration: last.duration,
+      }, { onSave: handleSummarySave, onDiscard: handleSummaryDiscard });
+    }
+  }
+}
+
 async function handleSummarySave(sessionId, summary) {
   await sendToSW({ type: 'SAVE_SESSION_SUMMARY', payload: { sessionId, summary } });
   pendingSummarySession = null;
@@ -255,45 +237,34 @@ async function handleSummaryDiscard(sessionId) {
   switchScreen('timer');
 }
 
-// --- Settings Button (now a menu with Export/Import) ---
+// ── Settings ──
 function setupSettingsButton() {
-  const btnSettings = document.getElementById('btn-settings');
-  if (!btnSettings) return;
+  const btn = document.getElementById('btn-settings');
+  if (!btn) return;
 
-  btnSettings.addEventListener('click', () => {
-    const choice = prompt(
-      '⚙ SETTINGS\n\n' +
-      '1. Set daily goal\n' +
-      '2. Export data to JSON file\n' +
-      '3. Import data from JSON file\n\n' +
-      'Enter 1, 2, or 3:'
-    );
+  btn.addEventListener('click', () => {
+    const c = prompt('⚙ SETTINGS\n\n1. Daily goal\n2. Export to JSON\n3. Import from JSON\n\nEnter 1/2/3:');
+    if (!c) return;
 
-    if (!choice) return;
-
-    if (choice === '1') {
-      const newGoal = prompt('Daily session goal (current: ' + (appData?.settings?.dailyGoal || 8) + '):');
-      if (newGoal && !isNaN(parseInt(newGoal)) && parseInt(newGoal) > 0) {
-        appData.settings.dailyGoal = parseInt(newGoal);
+    if (c === '1') {
+      const g = prompt('Daily sessions:', appData?.settings?.dailyGoal || 8);
+      if (g && parseInt(g) > 0) {
+        appData.settings.dailyGoal = parseInt(g);
         sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
-        updateTimerScreen({ timerState, display: getDisplayFromState(), appData, currentTemplate });
+        updateTimerScreen({ timerState, display: getDisplay(), appData, currentTemplate });
       }
-    } else if (choice === '2') {
-      exportToFile(appData).then(success => {
-        if (success) alert('✅ Data exported successfully!');
-      });
-    } else if (choice === '3') {
-      if (!confirm('Import will REPLACE all current data. Continue?')) return;
-      importFromFile().then(async (imported) => {
-        if (imported) {
-          appData = imported;
+    } else if (c === '2') {
+      exportToFile(appData).then(ok => { if (ok) alert('✅ Exported!'); });
+    } else if (c === '3') {
+      if (!confirm('Import replaces all data. Continue?')) return;
+      importFromFile().then(async (data) => {
+        if (data) {
+          appData = data;
           currentTemplate = appData.templates?.find(t => t.id === appData.activeTemplateId) || appData.templates?.[0] || null;
           await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
           renderAllScreens();
-          alert('✅ Data imported successfully!');
-        } else {
-          alert('❌ Import failed. Check the file format.');
-        }
+          alert('✅ Imported!');
+        } else alert('❌ Failed');
       });
     }
   });
