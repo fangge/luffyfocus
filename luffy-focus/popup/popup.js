@@ -123,13 +123,17 @@ async function sendToSW(message) {
 }
 
 // --- Polling ---
+// IMPORTANT: Polling only updates the TIMER STATE (countdown display).
+// It does NOT overwrite appData/currentTemplate — those are managed by
+// user actions (template changes, settings, etc.) and synced TO the SW.
+// If polling overwrote appData, a race condition would cause template
+// edits to be reverted by stale SW data.
 function startPolling() {
   pollIntervalId = setInterval(async () => {
     const response = await sendToSW({ type: 'GET_STATE' });
     if (response && response.timerState) {
+      // Only sync timer state — keep our local appData as source of truth
       timerState = response.timerState;
-      appData = response.appData;
-      currentTemplate = response.currentTemplate;
 
       const display = getDisplayFromState();
       updateTimerScreen({ timerState, display: response.display || display, appData, currentTemplate });
