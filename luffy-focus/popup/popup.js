@@ -83,19 +83,22 @@ function getDisplay() {
 
 // ── SW Communication ──
 async function loadStateFromSW() {
+  // ALWAYS load appData from chrome.storage.local (source of truth).
+  // The SW's in-memory copy can be stale if UPDATE_APP_DATA was
+  // lost during SW termination. Storage is the authority.
+  appData = await loadData();
+  currentTemplate = appData.templates?.find(t => t.id === appData.activeTemplateId) || appData.templates?.[0] || null;
+  console.log('[LF] Loaded from storage, activeTemplateId:', appData.activeTemplateId, 'template:', currentTemplate?.name);
+
+  // Get timer state from SW (only the SW knows the running countdown)
   try {
     const resp = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-    if (resp && resp.appData) {
+    if (resp && resp.timerState) {
       timerState = resp.timerState;
-      appData = resp.appData;
-      currentTemplate = resp.currentTemplate;
-      return;
+      console.log('[LF] Timer state from SW:', timerState?.state);
     }
-  } catch (e) { /* SW not ready */ }
-
-  appData = await loadData();
-  if (!currentTemplate) {
-    currentTemplate = appData.templates?.find(t => t.id === appData.activeTemplateId) || appData.templates?.[0] || null;
+  } catch (e) {
+    console.log('[LF] SW not available, timer idle');
   }
 }
 
@@ -155,10 +158,10 @@ function wireTimerButtons() {
   };
 }
 
-// ── Template Operations (SYNCHRONOUS UI update + fire-and-forget SW sync) ──
+// ── Template Operations ──
 
-/** Called when user edits/creates/deletes a template from the Templates screen */
-function handleTemplateChange(action, payload) {
+/** Called when user edits/creates/deletes/switches a template */
+async function handleTemplateChange(action, payload) {
   // 1. Update local data
   switch (action) {
     case 'createTemplate':
@@ -173,34 +176,38 @@ function handleTemplateChange(action, payload) {
 
   // 2. Update current template reference
   currentTemplate = appData.templates.find(t => t.id === appData.activeTemplateId) || appData.templates[0] || null;
+  console.log('[LF] handleTemplateChange:', action, 'activeTemplateId:', appData.activeTemplateId, 'currentTemplate:', currentTemplate?.name);
 
-  // 3. PERSIST to storage immediately (this is the critical save!)
-  saveData(appData);
+  // 3. PERSIST to storage — MUST await to ensure data is written
+  await saveData(appData);
+  console.log('[LF] Data saved to chrome.storage.local');
 
-  // 4. Sync to SW (fire-and-forget — doesn't block UI)
-  sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
+  // 4. Sync to SW and await confirmation
+  const swResp = await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
+  console.log('[LF] SW sync result:', swResp?.success ? 'OK' : 'FAILED');
 
-  // 5. Refresh templates list (closes form, shows updated cards)
+  // 5. Refresh templates list
   const tScreen = document.getElementById('screen-templates');
   if (tScreen) refreshTemplates(tScreen, appData);
 
-  // 6. ALWAYS re-init timer screen with latest data (regardless of active tab)
+  // 6. ALWAYS re-init timer screen with latest data
   const timerScreen = document.getElementById('screen-timer');
   if (timerScreen) {
     initTimerScreen(timerScreen, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);
     wireTimerButtons();
+    console.log('[LF] Timer screen re-initialized with template:', currentTemplate?.name);
   }
 }
 
 /** Called when user switches template from the timer screen buttons */
-function handleTemplateSwitch(templateId) {
+async function handleTemplateSwitch(templateId) {
   appData = setActiveTemplate(appData, templateId);
   currentTemplate = appData.templates.find(t => t.id === templateId) || appData.templates[0] || null;
+  console.log('[LF] handleTemplateSwitch to:', currentTemplate?.name);
 
-  saveData(appData);
-  sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
+  await saveData(appData);
+  await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
 
-  // Re-init both screens
   const timerScreen = document.getElementById('screen-timer');
   if (timerScreen) {
     initTimerScreen(timerScreen, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);
