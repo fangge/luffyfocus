@@ -1,17 +1,17 @@
 /**
  * Luffy Focus — Storage
  *
- * Primary: chrome.storage.local (reliable, always available, ~10MB)
- * File bridge: one-shot Export/Import via File System Access API
- *
- * Why not live File API sync? FileSystemFileHandle cannot be reliably
- * persisted across popup sessions — IndexedDB structured cloning is
- * inconsistent across Chrome versions. chrome.storage.local is the
- * canonical approach for Chrome extension data.
+ * Primary: chrome.storage.local (always reliable)
+ * Best-effort file sync: if user exported/selected a file this session,
+ * auto-write to it on every save. Handle is NOT persisted across
+ * sessions (no IndexedDB), but on next Export, the handle is restored.
  */
 import { createDefaultData } from './data-model.js';
 
 const STORAGE_KEY = 'luffy_focus_data';
+
+// Session-level file handle (lives as long as the popup is open)
+let _sessionFileHandle = null;
 
 /** Check if File System Access API is available */
 export function isFileSystemAPIAvailable() {
@@ -22,44 +22,49 @@ export function isFileSystemAPIAvailable() {
   }
 }
 
-/**
- * Load all data from chrome.storage.local.
- * @returns {Promise<object>}
- */
+// ── Primary Storage (chrome.storage.local) ──
+
 export async function loadData() {
   try {
     const result = await chrome.storage.local.get(STORAGE_KEY);
     if (result[STORAGE_KEY]) {
-      console.log('[Luffy Focus] Loaded from chrome.storage.local');
       return migrateData(result[STORAGE_KEY]);
     }
   } catch (e) {
-    console.warn('[Luffy Focus] Storage load error:', e.message);
+    console.warn('[Luffy Focus] Load error:', e.message);
   }
-
-  console.log('[Luffy Focus] No saved data, creating defaults');
   return createDefaultData();
 }
 
-/**
- * Save all data to chrome.storage.local.
- * @param {object} data
- */
 export async function saveData(data) {
+  // 1. Always save to chrome.storage.local (reliable)
   try {
     await chrome.storage.local.set({ [STORAGE_KEY]: data });
   } catch (e) {
     console.error('[Luffy Focus] Storage save error:', e.message);
   }
+
+  // 2. Best-effort: write to session file handle if available
+  if (_sessionFileHandle && isFileSystemAPIAvailable()) {
+    try {
+      const permission = await _sessionFileHandle.queryPermission({ mode: 'readwrite' });
+      if (permission === 'granted') {
+        const writable = await _sessionFileHandle.createWritable();
+        await writable.write(JSON.stringify(data, null, 2));
+        await writable.close();
+      }
+    } catch {
+      // File write failed — data is safe in chrome.storage.local
+      _sessionFileHandle = null;
+    }
+  }
 }
 
-// ─── One-shot File Export/Import (user-initiated) ───
+// ── File Export/Import (user-initiated) ──
 
 /**
- * Export current data to a user-chosen JSON file.
- * Must be called from a user gesture context.
- * @param {object} data - The data to export
- * @returns {Promise<boolean>}
+ * Export data to a user-chosen JSON file.
+ * Also remembers the handle for future auto-saves during this session.
  */
 export async function exportToFile(data) {
   if (!isFileSystemAPIAvailable()) return false;
@@ -70,24 +75,24 @@ export async function exportToFile(data) {
       suggestedName: 'luffy-focus-data.json',
     });
 
+    // Remember this handle for future auto-saves
+    _sessionFileHandle = fileHandle;
+
     const writable = await fileHandle.createWritable();
     await writable.write(JSON.stringify(data, null, 2));
     await writable.close();
 
-    console.log('[Luffy Focus] Data exported to file');
+    console.log('[Luffy Focus] Exported to file (auto-save enabled for this session)');
     return true;
   } catch (e) {
-    if (e.name !== 'AbortError') {
-      console.error('[Luffy Focus] Export error:', e);
-    }
+    if (e.name !== 'AbortError') console.error('[Luffy Focus] Export error:', e);
     return false;
   }
 }
 
 /**
  * Import data from a user-chosen JSON file.
- * Must be called from a user gesture context.
- * @returns {Promise<object|null>} The imported data, or null if cancelled/failed
+ * Also remembers the handle for future auto-saves during this session.
  */
 export async function importFromFile() {
   if (!isFileSystemAPIAvailable()) return null;
@@ -98,26 +103,23 @@ export async function importFromFile() {
       multiple: false,
     });
 
+    // Remember this handle for future auto-saves
+    _sessionFileHandle = fileHandle;
+
     const file = await fileHandle.getFile();
     const text = await file.text();
-
-    if (!text.trim()) {
-      console.warn('[Luffy Focus] Selected file is empty');
-      return null;
-    }
+    if (!text.trim()) return null;
 
     const data = JSON.parse(text);
     const migrated = migrateData(data);
-
-    // Save imported data and return it
     await saveData(migrated);
-    console.log('[Luffy Focus] Data imported from file');
+
+    console.log('[Luffy Focus] Imported from file (auto-save enabled for this session)');
     return migrated;
   } catch (e) {
-    if (e.name === 'AbortError') {
-      console.log('[Luffy Focus] Import cancelled');
-    } else if (e instanceof SyntaxError) {
-      console.error('[Luffy Focus] Invalid JSON in selected file');
+    if (e.name === 'AbortError') return null;
+    if (e instanceof SyntaxError) {
+      console.error('[Luffy Focus] Invalid JSON file');
     } else {
       console.error('[Luffy Focus] Import error:', e);
     }
@@ -125,26 +127,12 @@ export async function importFromFile() {
   }
 }
 
-/**
- * Always returns false — handle persistence is not supported.
- * Kept for API compatibility with code that calls this.
- */
-export async function isFileHandleValid() {
-  return false;
-}
+// Legacy stubs
+export async function isFileHandleValid() { return false; }
+export async function selectStorageFile() { return false; }
+export async function createStorageFile() { return false; }
 
-// Legacy stubs (kept for API compatibility)
-export async function selectStorageFile() {
-  console.log('[Luffy Focus] Use exportToFile/importFromFile instead');
-  return false;
-}
-
-export async function createStorageFile() {
-  const data = createDefaultData();
-  return exportToFile(data);
-}
-
-// ─── Migration ───
+// ── Migration ──
 
 function migrateData(data) {
   if (!data || typeof data !== 'object') return createDefaultData();

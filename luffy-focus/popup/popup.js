@@ -174,14 +174,17 @@ function handleTemplateChange(action, payload) {
   // 2. Update current template reference
   currentTemplate = appData.templates.find(t => t.id === appData.activeTemplateId) || appData.templates[0] || null;
 
-  // 3. Sync to SW (fire-and-forget — no await, UI doesn't wait for SW)
+  // 3. PERSIST to storage immediately (this is the critical save!)
+  saveData(appData);
+
+  // 4. Sync to SW (fire-and-forget — doesn't block UI)
   sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
 
-  // 4. Refresh templates list (closes form, shows updated cards)
+  // 5. Refresh templates list (closes form, shows updated cards)
   const tScreen = document.getElementById('screen-templates');
   if (tScreen) refreshTemplates(tScreen, appData);
 
-  // 5. ALWAYS re-init timer screen with latest data (regardless of active tab)
+  // 6. ALWAYS re-init timer screen with latest data (regardless of active tab)
   const timerScreen = document.getElementById('screen-timer');
   if (timerScreen) {
     initTimerScreen(timerScreen, { timerState, display: getDisplay(), appData, currentTemplate }, handleTemplateSwitch);
@@ -194,6 +197,7 @@ function handleTemplateSwitch(templateId) {
   appData = setActiveTemplate(appData, templateId);
   currentTemplate = appData.templates.find(t => t.id === templateId) || appData.templates[0] || null;
 
+  saveData(appData);
   sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
 
   // Re-init both screens
@@ -250,6 +254,7 @@ function setupSettingsButton() {
       const g = prompt('Daily sessions:', appData?.settings?.dailyGoal || 8);
       if (g && parseInt(g) > 0) {
         appData.settings.dailyGoal = parseInt(g);
+        saveData(appData);
         sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
         updateTimerScreen({ timerState, display: getDisplay(), appData, currentTemplate });
       }
