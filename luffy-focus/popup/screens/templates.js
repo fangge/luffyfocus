@@ -6,9 +6,6 @@ import { DAYS, TEMPLATE_COLORS } from '../../lib/data-model.js';
 let appDataRef = null;
 let onDataChange = null;
 
-/**
- * Initialize and render the templates screen.
- */
 export function initTemplatesScreen(container, appData, dataChangeCallback) {
   appDataRef = appData;
   onDataChange = dataChangeCallback;
@@ -21,36 +18,38 @@ function renderTemplateList(container) {
   container.innerHTML = `
     <div class="flex flex-col flex-1 p-gutter gap-lg overflow-y-auto" style="display: flex; flex-direction: column; flex: 1; padding: var(--space-gutter); gap: var(--space-lg); overflow-y: auto;">
 
-      <header class="flex items-center gap-sm mt-sm">
+      <header id="tpl-header" class="flex items-center gap-sm mt-sm">
         <span style="font-size: 24px;">📋</span>
         <h1 class="text-headline-md text-on-background">WORK TEMPLATES</h1>
       </header>
 
       <div class="pixel-divider"></div>
 
-      <div id="template-cards" class="flex flex-col gap-xl" style="display: flex; flex-direction: column; gap: var(--space-xl);">
-        ${templates.map(tpl => renderTemplateCard(tpl)).join('')}
+      <div id="tpl-list-area">
+        <div id="template-cards" class="flex flex-col gap-xl" style="display: flex; flex-direction: column; gap: var(--space-xl);">
+          ${templates.map(tpl => renderTemplateCard(tpl)).join('')}
+        </div>
+
+        <div style="flex: 1;"></div>
+
+        <button id="btn-add-template" class="pixel-btn pixel-btn--primary w-full" style="padding: var(--space-md); margin-bottom: var(--space-xs); margin-top: var(--space-md);">
+          + ADD NEW TEMPLATE
+        </button>
       </div>
 
-      <div style="flex: 1;"></div>
-
-      <button id="btn-add-template" class="pixel-btn pixel-btn--primary w-full" style="padding: var(--space-md); margin-bottom: var(--space-xs);">
-        + ADD NEW TEMPLATE
-      </button>
-
-      <div id="template-form-container" class="hidden"></div>
+      <div id="tpl-form-area" class="hidden"></div>
     </div>
   `;
 
-  // Wire up card clicks
+  // Card click → set active
   container.querySelectorAll('.template-card').forEach(card => {
     card.addEventListener('click', (e) => {
       if (e.target.closest('[data-action]')) return;
-      const tplId = card.dataset.templateId;
-      setActive(tplId);
+      setActive(card.dataset.templateId);
     });
   });
 
+  // Edit button → show form, hide list
   container.querySelectorAll('[data-action="edit"]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -58,6 +57,7 @@ function renderTemplateList(container) {
     });
   });
 
+  // Delete button
   container.querySelectorAll('[data-action="delete"]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -65,6 +65,7 @@ function renderTemplateList(container) {
     });
   });
 
+  // Add button → show form, hide list
   container.querySelector('#btn-add-template').addEventListener('click', () => {
     showTemplateForm(container, null);
   });
@@ -100,13 +101,31 @@ function renderTemplateCard(tpl) {
   `;
 }
 
+/**
+ * Show the template form as a full view — hides the template list.
+ */
 function showTemplateForm(container, templateId) {
   const tpl = templateId ? appDataRef.templates.find(t => t.id === templateId) : null;
-  const formContainer = container.querySelector('#template-form-container');
 
-  formContainer.innerHTML = `
-    <div class="pixel-card" style="margin-top: var(--space-md);">
-      <div class="pixel-card__title">${tpl ? 'EDIT' : 'NEW'} TEMPLATE</div>
+  // Hide list, show form
+  const listArea = container.querySelector('#tpl-list-area');
+  const formArea = container.querySelector('#tpl-form-area');
+  const header = container.querySelector('#tpl-header');
+  if (listArea) listArea.classList.add('hidden');
+  if (header) header.innerHTML = `
+    <button id="btn-back-to-list" class="pixel-btn" style="padding: 4px 8px; font-size: 14px;">←</button>
+    <h1 class="text-headline-md text-on-background">${tpl ? 'EDIT TEMPLATE' : 'NEW TEMPLATE'}</h1>
+  `;
+
+  // Back button
+  const backBtn = container.querySelector('#btn-back-to-list');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => showTemplateList(container));
+  }
+
+  formArea.innerHTML = `
+    <div class="pixel-card">
+      <div class="pixel-card__title" style="${tpl ? 'background: ' + tpl.color + '; color: #fff;' : ''}">${tpl ? tpl.name.toUpperCase() : 'NEW TEMPLATE'}</div>
       <div class="mt-md flex flex-col gap-md">
         <div>
           <label class="text-label-caps">NAME</label>
@@ -145,35 +164,34 @@ function showTemplateForm(container, templateId) {
     </div>
   `;
 
-  formContainer.classList.remove('hidden');
+  formArea.classList.remove('hidden');
 
-  // Wire up day toggles
-  formContainer.querySelectorAll('.pixel-day-btn').forEach(btn => {
+  // Day toggles
+  formArea.querySelectorAll('.pixel-day-btn').forEach(btn => {
     btn.addEventListener('click', () => btn.classList.toggle('pixel-day-btn--active'));
   });
 
-  // Wire up color dots
-  formContainer.querySelectorAll('.pixel-color-dot').forEach(dot => {
+  // Color dots
+  formArea.querySelectorAll('.pixel-color-dot').forEach(dot => {
     dot.addEventListener('click', () => {
-      formContainer.querySelectorAll('.pixel-color-dot').forEach(d => d.classList.remove('pixel-color-dot--selected'));
+      formArea.querySelectorAll('.pixel-color-dot').forEach(d => d.classList.remove('pixel-color-dot--selected'));
       dot.classList.add('pixel-color-dot--selected');
     });
   });
 
   // Cancel
-  formContainer.querySelector('#btn-cancel-form').addEventListener('click', () => {
-    formContainer.classList.add('hidden');
-    formContainer.innerHTML = '';
+  formArea.querySelector('#btn-cancel-form').addEventListener('click', () => {
+    showTemplateList(container);
   });
 
   // Save
-  formContainer.querySelector('#btn-save-template').addEventListener('click', () => {
-    const name = formContainer.querySelector('#tpl-name').value.trim() || 'New Template';
-    const workDuration = parseInt(formContainer.querySelector('#tpl-work').value) || 25;
-    const restDuration = parseInt(formContainer.querySelector('#tpl-rest').value) || 5;
-    const activeDays = Array.from(formContainer.querySelectorAll('#tpl-days .pixel-day-btn--active'))
+  formArea.querySelector('#btn-save-template').addEventListener('click', () => {
+    const name = formArea.querySelector('#tpl-name').value.trim() || 'New Template';
+    const workDuration = parseInt(formArea.querySelector('#tpl-work').value) || 25;
+    const restDuration = parseInt(formArea.querySelector('#tpl-rest').value) || 5;
+    const activeDays = Array.from(formArea.querySelectorAll('#tpl-days .pixel-day-btn--active'))
       .map(b => parseInt(b.dataset.day));
-    const colorEl = formContainer.querySelector('.pixel-color-dot--selected');
+    const colorEl = formArea.querySelector('.pixel-color-dot--selected');
     const color = colorEl ? colorEl.dataset.color : '#e41000';
 
     if (templateId) {
@@ -181,7 +199,24 @@ function showTemplateForm(container, templateId) {
     } else {
       onDataChange('createTemplate', { name, workDuration, restDuration, activeDays, color });
     }
+
+    // After save, the handleTemplateChange callback will refresh the list.
+    // We stay on the form view until refreshTemplates is called (which re-renders
+    // the entire container, effectively going back to list view).
   });
+}
+
+/** Switch back from form view to list view */
+function showTemplateList(container) {
+  const listArea = container.querySelector('#tpl-list-area');
+  const formArea = container.querySelector('#tpl-form-area');
+  const header = container.querySelector('#tpl-header');
+  if (listArea) listArea.classList.remove('hidden');
+  if (formArea) formArea.classList.add('hidden');
+  if (header) header.innerHTML = `
+    <span style="font-size: 24px;">📋</span>
+    <h1 class="text-headline-md text-on-background">WORK TEMPLATES</h1>
+  `;
 }
 
 function setActive(templateId) {
@@ -194,7 +229,6 @@ function deleteTemplate(templateId) {
   }
 }
 
-/** Refresh the template list after data changes */
 export function refreshTemplates(container, appData) {
   appDataRef = appData;
   renderTemplateList(container);
