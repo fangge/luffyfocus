@@ -212,12 +212,20 @@ async function handleTemplateChange(action, payload) {
       break;
   }
 
+  // Update current template reference from changed data
+  currentTemplate = appData.templates.find(t => t.id === appData.activeTemplateId) || appData.templates[0] || null;
+
+  // Sync full data to service worker so timer engine uses updated template
   await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
 
+  // Refresh templates screen
   const templatesScreen = document.getElementById('screen-templates');
   if (templatesScreen) {
     refreshTemplates(templatesScreen, appData);
   }
+
+  // Also update the timer screen to reflect template changes (name, durations, etc.)
+  updateTimerScreen({ timerState, display: getDisplayFromState(), appData, currentTemplate });
 }
 
 // --- Summary Handlers ---
