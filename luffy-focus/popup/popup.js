@@ -47,8 +47,13 @@ function renderAllScreens() {
 
   initNav((screenName) => {
     if (screenName === 'timer') {
-      // Refresh timer screen when switching to it (template may have changed)
-      updateTimerScreen({ timerState, display: getDisplayFromState(), appData, currentTemplate });
+      // Re-initialize timer screen with current data when switching to it
+      const timerScreen = document.getElementById('screen-timer');
+      if (timerScreen) {
+        console.log('[Luffy Focus] Re-initializing timer screen with template:', currentTemplate?.name);
+        initTimerScreen(timerScreen, { timerState, display: getDisplayFromState(), appData, currentTemplate });
+        wireTimerButtons();
+      }
     }
     if (screenName === 'stats') {
       refreshStats(statsScreen, appData);
@@ -217,6 +222,7 @@ async function handleTemplateChange(action, payload) {
   }
 
   currentTemplate = appData.templates.find(t => t.id === appData.activeTemplateId) || appData.templates[0] || null;
+  console.log('[Luffy Focus] Template change: action=' + action + ', new template=' + currentTemplate?.name);
 
   await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
 
@@ -225,7 +231,13 @@ async function handleTemplateChange(action, payload) {
     refreshTemplates(templatesScreen, appData);
   }
 
-  updateTimerScreen({ timerState, display: getDisplayFromState(), appData, currentTemplate });
+  // Update timer screen if it's currently visible, otherwise it will be
+  // re-initialized when the user switches to it via the nav callback
+  const timerScreen = document.getElementById('screen-timer');
+  if (timerScreen && timerScreen.classList.contains('screen--active')) {
+    updateTimerScreen({ timerState, display: getDisplayFromState(), appData, currentTemplate });
+  }
+  console.log('[Luffy Focus] Template change complete, timerScreen active:', timerScreen?.classList.contains('screen--active'));
 }
 
 // --- Summary Handlers ---
