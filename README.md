@@ -2,8 +2,8 @@
 
 A One Piece–themed Pomodoro timer Chrome extension with pixel-art aesthetics. Built with Manifest V3, vanilla JavaScript, and a shared timer engine that runs reliably across popup and service worker.
 
-![Timer screen](</Users/fangyang/Mrfangge/project/personal project/luffyclock/screenshot.png>)
-![Stats screen](</Users/fangyang/Mrfangge/project/personal project/luffyclock/screenshot2.png>)
+![Timer screen](./screenshot.png)
+![Stats screen](./screenshot2.png)
 
 ---
 
