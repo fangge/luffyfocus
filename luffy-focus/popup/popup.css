@@ -537,3 +537,51 @@ body {
 .screen--active {
   display: flex;
 }
+
+/* --- Toast Notification Banner --- */
+.toast-notification {
+  background: var(--color-success);
+  border: var(--border-width) solid var(--color-on-background);
+  box-shadow: 4px 4px 0 0 var(--color-on-background);
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--color-on-background);
+  text-transform: uppercase;
+  animation: toast-slide-in 0.3s steps(4) forwards,
+             toast-slide-out 0.3s steps(4) 3.5s forwards;
+}
+
+.toast-notification.hidden {
+  display: none;
+}
+
+.toast-notification--rest {
+  background: var(--color-tertiary-container);
+  color: var(--color-on-tertiary-container);
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-slide-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}

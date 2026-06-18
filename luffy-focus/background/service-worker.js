@@ -121,8 +121,8 @@ async function handleTimerFinished() {
     updateBadge('done', 0);
     await notifyWorkComplete(currentTemplate.name, session.duration);
 
-    // Auto-start rest if enabled
-    if (appData.settings.autoStartRest && currentTemplate) {
+    // Always auto-start rest after work completes
+    if (currentTemplate) {
       timerState = startRest(
         { ...createTimerState(currentTemplate), type: SESSION_TYPE.REST, totalSeconds: currentTemplate.restDuration * 60 },
         currentTemplate.restDuration * 60

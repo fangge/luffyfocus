@@ -16,6 +16,7 @@ let timerState = null;
 let currentTemplate = null;
 let pendingSummarySession = null;
 let pollIntervalId = null;
+let previousTimerState = null;
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
@@ -47,6 +48,7 @@ async function initializeApp() {
 
 async function loadStateAndRender() {
   await loadStateFromSW();
+  previousTimerState = timerState ? { ...timerState } : null;
   renderAllScreens();
 }
 
@@ -174,10 +176,36 @@ function startPolling() {
     const resp = await sendToSW({ type: 'GET_STATE' });
     if (resp && resp.timerState) {
       timerState = resp.timerState;
+      // Detect transitions to 'done' → show toast
+      if (previousTimerState &&
+          previousTimerState.state !== 'done' &&
+          timerState.state === 'done') {
+        showCompletionToast(timerState.type);
+      }
+      previousTimerState = { ...timerState };
       updateTimerScreen({ timerState, display: resp.display || getDisplay(), appData, currentTemplate });
       checkPendingSummary();
     }
   }, 1000);
+}
+
+// ── Toast Notification ──
+function showCompletionToast(sessionType) {
+  const toast = document.getElementById('toast-notification');
+  const toastText = document.getElementById('toast-text');
+  if (!toast || !toastText) return;
+
+  const isWork = sessionType === 'work';
+  toast.className = 'toast-notification' + (isWork ? '' : ' toast-notification--rest');
+  toastText.textContent = isWork
+    ? '🏴‍☠️ WORK COMPLETE! Rest session started!'
+    : '⚡ REST COMPLETE! Ready for next voyage!';
+  toast.classList.remove('hidden');
+
+  // Re-add hidden after animation finishes
+  setTimeout(() => {
+    toast.classList.add('hidden');
+  }, 4000);
 }
 
 // ── Timer Buttons ──

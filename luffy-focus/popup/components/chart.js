@@ -1,12 +1,14 @@
 /**
  * Luffy Focus — Custom Pixel-Art Canvas Chart Renderer
  * Renders 7-day Work vs Rest bar chart with NES aesthetic.
+ * Returns bar positions for mouse-hover tooltip support.
  */
 
 /**
  * Render the 7-day work vs rest bar chart.
  * @param {HTMLCanvasElement} canvas - The canvas element
- * @param {Array} daysData - Array of { label, workHours, restHours, isToday }
+ * @param {Array} daysData - Array of { label, workHours, restHours, isToday, date, workMinutes, restMinutes }
+ * @returns {Array} barRects - Array of bar position objects for tooltip hit detection
  */
 export function renderWeekChart(canvas, daysData) {
   const dpr = window.devicePixelRatio || 1;
@@ -66,6 +68,9 @@ export function renderWeekChart(canvas, daysData) {
   const barGroupWidth = chartW / daysData.length;
   const barWidth = (barGroupWidth * 0.6) / 2;
 
+  // Store bar positions for tooltip hit detection
+  const barRects = [];
+
   daysData.forEach((day, i) => {
     const groupX = padding.left + i * barGroupWidth + barGroupWidth * 0.2;
 
@@ -86,6 +91,13 @@ export function renderWeekChart(canvas, daysData) {
     ctx.fillStyle = day.isToday ? '#b60b00' : '#181c20';
     ctx.textAlign = 'center';
     ctx.fillText(day.label, groupX + barWidth, padding.top + chartH + 16);
+
+    // Store bar positions for tooltip
+    barRects.push({
+      dayIndex: i,
+      workX, workY, workW: barWidth, workH,
+      restX, restY, restW: barWidth, restH,
+    });
   });
 
   // Draw border around chart area
@@ -93,6 +105,8 @@ export function renderWeekChart(canvas, daysData) {
   ctx.lineWidth = 4;
   ctx.setLineDash([]);
   ctx.strokeRect(padding.left - 2, padding.top, chartW + 8, chartH + 4);
+
+  return barRects;
 }
 
 /**

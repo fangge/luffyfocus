@@ -83,6 +83,13 @@ export function getLast7DaysData(data) {
   return days;
 }
 
+/** Get session log for a specific date, sorted by time */
+export function getDayLog(data, dateStr) {
+  return data.sessions
+    .filter(s => s.startTime.startsWith(dateStr))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
 /** Get today's session log sorted by time */
 export function getTodayLog(data) {
   const today = getTodayString();

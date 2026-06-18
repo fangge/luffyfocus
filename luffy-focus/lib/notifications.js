@@ -38,7 +38,7 @@ export async function notifyRestComplete() {
     title: '⚡ Break Over!',
     message: "Ready for the next voyage? Let's get back to work!",
     priority: 1,
-    requireInteraction: false,
+    requireInteraction: true,
   });
 }
 
