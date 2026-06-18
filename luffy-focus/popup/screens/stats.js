@@ -2,7 +2,7 @@
  * Luffy Focus — Statistics Screen (Voyage Logs)
  */
 import { getSessionsToday, getFocusTimeToday, getStreak, getLast7DaysData, getTodayLog, getDayLog, formatTime } from '../../lib/stats.js';
-import { getTodayString } from '../../lib/data-model.js';
+import { getTodayString, SESSION_TYPE, SESSION_STATUS } from '../../lib/data-model.js';
 import { renderWeekChart } from '../components/chart.js';
 
 // Module state for date selection via chart click
@@ -11,7 +11,7 @@ let statsSelectedDate = null;
 /**
  * Initialize and render the stats screen.
  */
-export function initStatsScreen(container, appData) {
+export function initStatsScreen(container, appData, onDeleteSession = null) {
   const sessionsToday = getSessionsToday(appData);
   const focusMinutes = getFocusTimeToday(appData);
   const streak = getStreak(appData);
@@ -91,7 +91,34 @@ export function initStatsScreen(container, appData) {
   if (backBtn) {
     backBtn.addEventListener('click', () => {
       statsSelectedDate = null;
-      initStatsScreen(container, appData);
+      initStatsScreen(container, appData, onDeleteSession);
+    });
+  }
+
+  // Wire delete buttons if callback provided
+  if (onDeleteSession) {
+    requestAnimationFrame(() => {
+      container.querySelectorAll('[data-delete-session-id]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const sessionId = btn.dataset.deleteSessionId;
+          const session = appData.sessions.find(s => s.id === sessionId);
+          if (!session) return;
+
+          const typeLabel = session.type === SESSION_TYPE.WORK ? 'work' : 'rest';
+          const timeLabel = formatTime(session.startTime);
+          const confirmed = confirm('Delete this ' + typeLabel + ' session at ' + timeLabel + '?');
+          if (!confirmed) return;
+
+          btn.disabled = true;
+          try {
+            await onDeleteSession(sessionId);
+          } catch (err) {
+            console.error('[LF] Failed to delete session:', err);
+            btn.disabled = false;
+          }
+        });
+      });
     });
   }
 
@@ -101,7 +128,7 @@ export function initStatsScreen(container, appData) {
     if (canvas) {
       const barRects = renderWeekChart(canvas, weekData);
       setupChartTooltip(canvas, barRects, weekData, () => {
-        initStatsScreen(container, appData);
+        initStatsScreen(container, appData, onDeleteSession);
       });
     }
   });
@@ -119,6 +146,7 @@ function renderLogEntry(session, templates) {
   const timeRange = `${formatTime(session.startTime)} - ${formatTime(session.endTime)}`;
   const memo = session.summary || (isWork ? '' : '');
   const statusLabel = isWork ? 'Completed' : 'Restored';
+  const isCompleted = session.status === SESSION_STATUS.COMPLETED;
 
   return `
     <div class="pixel-card flex items-center justify-between" style="display: flex; align-items: center; justify-content: space-between; ${borderStyle} padding: var(--space-sm); gap: var(--space-sm);">
@@ -138,14 +166,15 @@ function renderLogEntry(session, templates) {
       <div class="text-right flex flex-col items-end" style="flex-shrink: 0;">
         <span class="text-body-bold text-on-surface-variant">${session.duration} MIN</span>
         <span class="text-label-caps text-on-surface-variant">${statusLabel}</span>
+        ${isCompleted ? '<button class="session-delete-btn" data-delete-session-id="' + session.id + '" title="Delete this session" style="background: none; border: 1px solid var(--color-on-surface-variant); color: var(--color-on-surface-variant); width: 18px; height: 18px; padding: 0; font-size: 16px; line-height: 1; cursor: pointer; border-radius: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center;">\u00d7</button>' : ''}
       </div>
     </div>
   `;
 }
 
 /** Refresh stats when switching to this tab */
-export function refreshStats(container, appData) {
-  initStatsScreen(container, appData);
+export function refreshStats(container, appData, onDeleteSession = null) {
+  initStatsScreen(container, appData, onDeleteSession);
 }
 
 /**

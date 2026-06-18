@@ -105,7 +105,7 @@ function renderAllScreens() {
   }
   // Stats screen
   if (statsScreen) {
-    initStatsScreen(statsScreen, appData);
+    initStatsScreen(statsScreen, appData, handleSessionDelete);
   }
 
   // Navigation: re-init screens when switching tabs
@@ -118,7 +118,7 @@ function renderAllScreens() {
       }
     }
     if (screenName === 'stats') {
-      refreshStats(statsScreen, appData);
+      refreshStats(statsScreen, appData, handleSessionDelete);
     }
     if (screenName === 'templates') {
       refreshTemplates(templatesScreen, appData);
@@ -319,6 +319,24 @@ async function handleTemplateSwitch(templateId) {
   }
   const tScreen = document.getElementById('screen-templates');
   if (tScreen) refreshTemplates(tScreen, appData);
+}
+
+
+// ── Session Deletion ──
+
+/** Delete a completed session from appData, persist, and re-render stats */
+async function handleSessionDelete(sessionId) {
+  const idx = appData.sessions.findIndex(s => s.id === sessionId);
+  if (idx === -1) return;
+  appData.sessions.splice(idx, 1);
+
+  await saveData(appData);
+  await sendToSW({ type: 'UPDATE_APP_DATA', payload: appData });
+
+  const statsScreen = document.getElementById('screen-stats');
+  if (statsScreen) {
+    initStatsScreen(statsScreen, appData, handleSessionDelete);
+  }
 }
 
 // ── Summary ──

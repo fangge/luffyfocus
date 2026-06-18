@@ -13,3 +13,5 @@ stitch_pixel_luffy_focus/
 
 # Node
 node_modules/
+.agents
+docs
