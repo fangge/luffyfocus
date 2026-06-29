@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Luffy Focus",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A pixel-art One Piece themed Pomodoro timer — stay focused on your voyage!",
   "permissions": ["storage", "alarms", "notifications"],
   "action": {

@@ -53,18 +53,32 @@ async function clearAll() {
 }
 
 /**
+ * Compute the badge text from remaining seconds.
+ * Shows minutes when >= 60s, otherwise shows the remaining seconds
+ * so the icon never displays a bare "0" during the final minute.
+ * @param {number} remainingSeconds - Total seconds remaining
+ * @returns {string}
+ */
+function badgeTextFromSeconds(remainingSeconds) {
+  if (remainingSeconds >= 60) {
+    return String(Math.floor(remainingSeconds / 60));
+  }
+  return String(Math.max(0, remainingSeconds));
+}
+
+/**
  * Update the extension badge based on timer state.
  * @param {string} state - Timer state (idle, working, resting, paused, done)
- * @param {number} remainingMinutes - Minutes remaining
+ * @param {number} remainingSeconds - Total seconds remaining
  */
-export function updateBadge(state, remainingMinutes) {
+export function updateBadge(state, remainingSeconds) {
   switch (state) {
     case 'working':
-      chrome.action.setBadgeText({ text: String(remainingMinutes) });
+      chrome.action.setBadgeText({ text: badgeTextFromSeconds(remainingSeconds) });
       chrome.action.setBadgeBackgroundColor({ color: '#e41000' });
       break;
     case 'resting':
-      chrome.action.setBadgeText({ text: String(remainingMinutes) });
+      chrome.action.setBadgeText({ text: badgeTextFromSeconds(remainingSeconds) });
       chrome.action.setBadgeBackgroundColor({ color: '#92cc41' });
       break;
     case 'paused':

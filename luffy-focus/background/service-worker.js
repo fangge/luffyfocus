@@ -96,7 +96,7 @@ function onTick() {
 function updateBadgeFromState() {
   if (!timerState) return;
   const display = getTimerDisplay(timerState);
-  updateBadge(timerState.state, display.minutes);
+  updateBadge(timerState.state, display.totalSeconds);
 }
 
 async function handleTimerFinished() {
